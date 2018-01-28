@@ -1,0 +1,94 @@
+var app = require('express')();
+var http = require('http').Server(app);
+var io = require('socket.io')(http);
+var pg = require('pg');
+
+//pg.defaults.host='localhost';
+//pg.defaults.port = 5433;
+//pg.defaults.user = 'postgres';
+//pg.defaults.database='statemachine';
+
+pg.host='localhost';
+pg.port = 5433;
+pg.user='postgres';
+pg.database='statemachine';
+
+c2 = new pg.Client;
+c2.connectionParameters.host='127.0.0.1';
+c2.connectionParameters.port=5433;
+c2.connectionParameters.user='postgres';
+c2.connectionParameters.database='statemachine';
+
+app.get('/', function(req, res){
+  res.sendFile(__dirname + '/index.html');
+});
+
+app.get('/api', function(req, res){
+  res.sendFile(__dirname + '/index.html');
+});
+
+app.get('/users', function(req, res) {
+	res.sendfile(__dirname + '/users.json');
+}); 
+
+c2.connect();
+console.log(c2);
+deskResults = [];
+
+var pushDeskDataResults = function (err, results) {
+	if (err) {
+		console.log(err);
+	}
+	deskResults = pushDataResults;
+}
+
+var userId = 0;
+io.on('connection', function(socket){
+  socket.userId = userId ++;
+  console.log('a user connected, user id: ' + socket.userId);
+  var emitter = function(err, msg, data) {
+	if (err) {
+		console.log(err);
+        }
+	io.emit('deskstate',  {
+		 id : socket.userId,
+                 msg : data 
+        });
+  });  
+
+  c2.query('select * from desk', [], (err, res, cb) => {
+        results = []
+        if (err) {
+                console.log(err);
+        } 
+        console.log(res.rows);
+        for (var i = 0; i < res.rows.length; ++ i) {
+                results.append(res.rows[i]);
+        }
+    
+  socket.on('desks', function(msg) {
+	results = [];
+
+	c2.query('select * from desk', [], (err, res) => {
+       
+        if (err) {
+                console.log(err);
+        } 
+        console.log(res.rows);
+        for (var i = 0; i < res.rows.length; ++ i) {
+                results.append(res.rows[i]);
+        }
+	pushDeskDataResults(null, results);    
+  })
+  socket.on('chat', function(msg){
+    console.log('message from user#' + socket.userId + ": " + msg);
+    io.emit('chat', {
+      id: socket.userId,
+      msg: msg
+    });
+  });
+});
+
+http.listen(3000, function(){
+  console.log('listening on *:3000');
+});

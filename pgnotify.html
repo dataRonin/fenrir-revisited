@@ -1,0 +1,29 @@
+<html>
+<head>
+</head>
+<div id="test-content">
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+var d = document.getElementById("test-content");
+  
+var socket = io.connect('http://localhost:3000');
+socket.on('connected', function(data) {
+	socket.emit('readyForData', {});
+     });
+
+socket.emit('doy', {data: {doy: 256}});
+socket.emit('holding', {data : {mac: '6ede78', doy: 33}});
+socket.emit('desk', {data: {mac: '6ede78'}});
+
+   socket.on('doy', function(data) {
+     console.log(data);
+    console.log('from doy');
+    });
+   socket.on('update', function(data) {
+     console.log(data.message.payload);
+     var d = document.getElementById("test-content");
+   d.textContent = JSON.stringify(data.message.payload);
+   });
+</script>
+</html>

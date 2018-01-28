@@ -1,0 +1,249 @@
+'use strict';
+var D = new Date(Date.now())
+var fs = require('fs');
+var app = require('express')();
+var http = require('http').Server(app);
+var io = require('socket.io')(http);
+var pg = require('pg');
+
+/// custom library returns day of year
+var doy = require('../doy')
+
+// updated every minute with current system desk occupancy
+//var deskstate = require('/home/enlighted/fenrir/app2/socket.io-unity/Demo/test-server/_desk.json');
+var deskstate = require('../deskstate.json');
+
+console.log("Welcome to Hotelling server and right now it is " + D);
+console.log("Today is the " + doy.doy(D) + "day of the year");
+
+pg.host='localhost';
+pg.port = 5433;
+pg.user='postgres';
+pg.database='statemachine';
+
+// this is a test client and will be removed
+var c2 = new pg.Client;
+c2.connectionParameters.host='127.0.0.1';
+c2.connectionParameters.port=5433;
+c2.connectionParameters.user='postgres';
+c2.connectionParameters.database='statemachine';
+
+
+
+// here are some api
+app.get('/', function(req, res){
+  res.sendFile(__dirname + '/index.html');
+});
+
+app.get('/api', function(req, res){
+  res.sendFile(__dirname + '/index.html');
+});
+
+app.get('/desks', function(req, res) {
+   res.sendfile(__dirname + '/_desk.json');
+});
+
+app.get('/login', function(req, res) {
+  res.status(200); 
+//  res.send('login page here');
+}) 
+
+app.get('/schedules', function(req, res) {
+  res.status(200);
+//  res.send('schedues here');
+});
+
+app.get('/showcase', function(req, res) {
+   res.status(404).end('error');
+//   res.send('for error pages');
+});
+
+
+// test results 
+var testres;
+
+
+
+// connect a client
+//c2.connect();
+
+// test a table
+//c2.query('select * from desk', [], (err, response) => {
+//  var cb = function(err, results) {
+//	if (err) {console.err}
+//      testres = results;
+//      console.log("in test");
+//	console.log(testres);
+// };
+
+c2.connect().then(c2 => {
+
+  c2.query('select * from desk', []). then(response => {
+  c2.release()
+  console.log('hello', response.rows[0].mac)
+  })
+  .catch(e => {c2.release()
+  console.error('query', e.message, e.stack)
+})
+})
+//   if (err) {console.log(err);
+//     } else {
+//     var results = []
+//     for (var i = 0 ; i < response.rows.length; ++i) {
+//        results.push({'mac':response.rows[i]['mac'],
+//            'state': response.rows[i]['state'],  
+//            'capture_at':response.rows[i]['capture_at'],
+//            'holding': response.rows[i]['holding']
+//        });
+//      }
+//      cb(null, results);
+//  };
+//  c2.end();
+// });
+
+// query for one day in future for a certain desk
+var deskResults;
+// query for all the desks on some future day
+var scheduleResults;
+// authentication is ok for this user
+var authResults;
+// confirmed the users action and saved the results
+var confirmActionResults;
+
+
+// socket
+var userId=0;
+
+// io open parenthesis
+io.on('connection', function (socket) {
+  socket.userId = userId ++;
+  console.log('a user connected, user id: ' + socket.userId);
+  
+  // the current date
+  var ds = JSON.stringify(D);
+  // for testing
+  io.emit('currentstate', {
+      data:
+	 { 'mac': '6ed978',
+	   'state': 'v', 
+           'capture_at': ds, 
+           'holding': false, 
+           'doy': doy.doy(D) 
+         }
+      }
+   });
+
+
+   // if a user submits their email
+   socket.on('user', function(email) {
+      var c = new pg.Client;
+      c.connectionParameters.host= '127.0.0.1';
+      c.connectionParameters.user = 'postgres';
+      c.connectionParameters.port = 5433;
+      c.database = 'statemachine';
+      c.connect();
+
+      var q = 'insert into usernames (email) values ' + email + ' where not exists (select email from usernames where email=' + email;
+      c.query(q, [], (err, response) => {
+        if (err) { 
+           console.log(err) 
+         }
+         console.log(response.rows);
+      });
+   });
+   
+   // if a user chooses a day of the year (regardless of desk)
+   socket.on('doy', function(data) {
+      var chosenDoy = data.doy;
+      var c = new pg.Client;
+      c.connectionParameters.host= '127.0.0.1';
+      c.connectionParameters.user = 'postgres';
+      c.connectionParameters.port = 5433;
+      c.database = 'statemachine';
+      c.connect();
+
+      var pushScheduleResults = function(err, results_) {
+     	if (err) {
+           console.log(err);
+        }
+        scheduleResults = results_;
+        emitScheduleResults(null, 'doydata', {d: scheduleResults});
+      }
+
+      var emitScheduleResults = function (err, msg, data) {
+         if (err) {
+           console.log(err)
+          }
+         io.emit(msg, data)
+      }
+
+       var q ='select schedules.mac, schedules.tf, schedules.tt, desk.unityx, desk.unityy, desk.unityz, schedules.doy, desk.holding from schedules join desk on schedules.mac = desk.mac and schedules.doy=' + chosenDoy;
+       c.query(q, [], (err, results) => {
+           if (err) {
+              console.log(err);
+           }
+          var results = [];
+          console.log(response.rows);
+          for (var i = 0; i < response.rows.length; ++i) {
+            console.log(response.rows[i]);
+            results.append(response.rows[i]);
+           }
+           pushScheduleResults(null, results);
+         });
+       });
+
+   // the desk gets the current state of the floor (like the current state starting var)
+   socket.on('desk', function() { 
+     var c = new pg.Client;
+     c.connectionParameters.host= '127.0.0.1';
+     c.connectionParameters.user = 'postgres';
+     c.connectionParameters.port = 5433;
+     c.database = 'statemachine';
+     c.connect();
+
+    var pushDeskDataResults = function (err, results_) {
+      if (err) {
+        console.log(err);
+      }
+      deskResults = results_;
+      emitAnyResults(null, 'deskdata', {d: deskResults});
+    }
+  
+    var emitAnyResults = function (err, msg, data) {
+       if (err) {
+ 	console.log(err)
+       }
+       io.emit(msg, data)
+    }
+
+   c.query('select * from desk', [], (err, response) => {
+     if (err) { 
+        console.log(err);
+      } 
+      var results = [];   
+      console.log(response.rows);
+      for (var i = 0; i < response.rows.length; ++i) {
+ 	 console.log(response.rows[i]);
+         results.append(response.rows[i]);
+      }
+      pushDeskDataResults(null, results);
+    });
+  });
+
+  socket.on('chat', function(msg){
+     console.log('message from user#' + socket.userId + ": " + msg);
+   
+     io.emit('chat', {
+      id: socket.userId,
+      msg: msg
+     });
+  });
+
+  //socket.on('disconnect', function(msg) {
+  //   console.log('a user disconnected');
+  // });
+});
+
+http.listen(3000, function(){
+  console.log('listening on *:3000');
+});
